@@ -1,0 +1,82 @@
+#!/bin/bash
+cd "$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# HOST=https://nu-acs-auth-ci.elb.acs-prod.ntch.co.uk
+HOST=https://ni-acs-prod-auth.cloud-newsint.co.uk
+API_KEY=${1:-b7b3c88ac96466466b717962b64ceb57}
+PRIVATE_KEY=${2:-434c3f8eb2457f3c691ee48860291733}
+
+export RESOURCE_VERSION=1
+
+
+USER='VFR6656721364'
+CONTENT='{"tenantId": "NGN", "CPN": "'$USER'"}'
+
+RESOURCE_VERSION=1
+X_NI_API_VERSION=${X_NI_API_VERSION:-1}
+URI=/authN/deleteUser
+
+pause() {
+  local msg=$1
+  echo -e "$msg[0m [Return]"
+  read
+}
+
+emphasize() {
+ 
+  echo $1 
+}
+
+emphasize_on() {
+  echo 
+}
+
+emphasize_off() {
+  echo 
+}
+
+checkStatus() {
+  local status=$1
+  local expected=$2
+  case "$status" in
+      "$expected")
+           echo -e "Success!"
+           ;;
+      *) echo "Fail! expected: $expected returned: $status"
+           ;;
+  esac
+  echo
+}
+
+echo "-------------------------------------------------------------------------------------------------------"
+echo "POST '${CONTENT}' to '${HOST}${URI}' signed ACS request'"
+echo "-------------------------------------------------------------------------------------------------------"
+pause  "Press enter to delete."
+
+JSON_WITH_TIMESTAMP=$(echo -n "${CONTENT}" | sed "s/\(.*\)\}/\1, \"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\}/")
+CONTENT=`echo -n "${JSON_WITH_TIMESTAMP}" | iconv -c -f UTF-8 -t US-ASCII`
+SIG=$(echo -n ${CONTENT} | openssl dgst -sha1 -hmac ${PRIVATE_KEY} -binary | openssl enc -base64)
+status_line=$(curl -k -D /tmp/demo-headers.$$ $VERBOSE -s -o /tmp/demo-post.$$ -X POST -H "Content-Type: application/json" -H "X-NI-signatureType: 2" -H "X-NI-signatureHash: ${SIG}" -H "X-NI-apiKey: ${API_KEY}" -H "X-NI-apiVersion: $X_NI_API_VERSION" -H "X-NI-acsTrackingCookie: $TRACKING_COOKIE_HEADER" -d "${CONTENT}" ${HOST}${URI})
+
+if [ -e "/tmp/demo-headers.$$" ]
+then
+  emphasize_on
+  cat /tmp/demo-headers.$$
+  emphasize_off
+  cp /tmp/demo-headers.$$ /tmp/last.headers
+  rm /tmp/demo-headers.$$
+  echo "-------------------------------------------------------------------------------------------------------"
+fi
+
+if [ -e "/tmp/demo-post.$$" ]
+then
+  emphasize_on
+  jq . < /tmp/demo-post.$$
+  emphasize_off
+  cp /tmp/demo-post.$$ /tmp/last.json
+  rm /tmp/demo-post.$$
+fi
+echo "-------------------------------------------------------------------------------------------------------"
+echo
+status_code=`echo $status_line | awk '{print $2}'`
+exit $status_code
